@@ -1,23 +1,43 @@
 #MAGIC_SMALL_FONT="1/6in = .0625 = 4.5"
 #MAGIC_MED_FONT="1/8in = .125 = 9"
 #MAGIC_LARGE_FONT="3/16in = .1875 = 13.5"
-
+import math
 import os
 if not os.path.exists("output"):
     os.mkdir("output")
+    
+global context
 
-SMALL_FONT_SIZE=12
-MED_FONT_SIZE=15
+SMALL_FONT_SIZE=9
+MED_FONT_SIZE=12
 LARGE_FONT_SIZE=20
 
 import pyexcel
 data = pyexcel.get_book(file_name="cards.ods")
 all_cards = []
+templates = {}
 for sheet_name in data.sheets:
     sheet = data.sheet_by_name(sheet_name)
-    all_cards.extend(pyexcel.get_records(file_name="cards.ods",sheet_name=sheet_name,name_columns_by_row=0))
+    
+    reading_templates = False
+    for template_line in pyexcel.get_sheet(file_name="cards.ods",sheet_name=sheet_name).to_array():
+        if template_line[0]=="template":
+            reading_templates = template_line[1]
+            templates[reading_templates] = []
+            print("found template",reading_templates)
+        elif reading_templates:
+            if not template_line[0]:
+                break
+            templates[reading_templates].append(template_line)
+            
+    for card in pyexcel.get_records(file_name="cards.ods",sheet_name=sheet_name,name_columns_by_row=0):
+        if not card.get("count",None) or card["count"]=="template":
+            break
+        all_cards.append(card)
+print(templates)
+print(all_cards)
 count_cards = sum([c.get("count",1) for c in all_cards])
-
+print(count_cards)
 
 import svgwrite
 import textwrap
@@ -42,10 +62,10 @@ while y+cardh<pageheight:
         x+=cardw+spacing 
     x=0
     y+=cardh+spacing
-num_pages = count_cards//card_per_page
+num_pages = math.ceil(count_cards/card_per_page)
 
-print(num_pages,len(all_cards),card_per_page,mm(pageheight*num_pages))
-cardsheet = svgwrite.Drawing("output/all_cards.svg",size=(mm(pagewidth),mm(pageheight*num_pages)))
+print(num_pages,count_cards,card_per_page,mm(pageheight*num_pages))
+cardsheet = svgwrite.Drawing("output/all_cards.svg",size=(mm(pagewidth),mm(pageheight*(num_pages))))
 
 def make_img_pattern(root,img,width,height):
     pattern = root.pattern(id=img,patternUnits="userSpaceOnUse",
@@ -55,7 +75,31 @@ def make_img_pattern(root,img,width,height):
 def init_patterns(root):
     make_img_pattern(root,"paper_texture.jpg",600,450)
     make_img_pattern(root,"sail_texture.jpg",253,355)
-init_patterns(cardsheet)
+def init_style(root):
+    root.defs.add(root.style("""<style>
+        text {
+            font-size: %(med_font_size)spt;
+            font-family: "Source sans pro";
+        }
+
+        text.title {
+            font-size: %(large_font_size)spt;
+        }
+
+        text.desc {
+            font-size: %(med_font_size)spt;
+        }
+
+        text.tiny {
+            font-size: %(small_font_size)spt;
+        }
+        </style>
+        """%{'small_font_size':SMALL_FONT_SIZE,'med_font_size':MED_FONT_SIZE,'large_font_size':LARGE_FONT_SIZE}
+    ))
+def init_sheet(sheet):
+    init_style(sheet)
+    init_patterns(sheet)
+init_sheet(cardsheet)
 
 
 def wrapped_text(text,x,y,columns,rows,vspace=5,**args):
@@ -73,45 +117,92 @@ def wrapped_text(text,x,y,columns,rows,vspace=5,**args):
         text.add(cardsheet.tspan(line,x=[x],y=[y]))
         y=mm(conv_mm(y)+vspace)
     return text
+
+def read_color(s):
+    if type(s) == type("") and (s.endswith(".jpg") or s.endswith(".png")):
+        return "texture",s
+    if type(s) == type("") and "(" in s and ")" in s:
+        return "color",tuple([int(x) for x in s[s.find("(")+1:s.find(")")].split(",")])
+    return s
+def read_float(s):
+    if(type(s)==type("")):
+        return float(eval(s))
+    return s
+def read_wrap(s):
+    if type(s) == type("") and "(" in s and ")" in s:
+        return tuple([int(x) for x in s[s.find("(")+1:s.find(")")].split(",")])
+def addtext(text,x,y,anchor="start",text_class="desc",wrap=False,*a,**kwargs):
+    offset = kwargs["offset"]
+    x=read_float(x)
+    y=read_float(y)
+    wrap=read_wrap(wrap)
+    if wrap:
+        element = wrapped_text(text,mm(offset[0]+x),mm(offset[1]+y),wrap[0],wrap[1],wrap[2],class_=text_class,text_anchor=anchor)
+    else:
+        element = context.text(text,x=[mm(offset[0]+x)],y=[mm(offset[1]+y)],class_=text_class,text_anchor=anchor)
+    context.add(element)
+def addrect(x,y,w,h,color_or_texture=None,stroke="",round=False,*a,**kwargs):
+    offset = kwargs["offset"]
+    color = None
+    x=read_float(x)
+    y=read_float(y)
+    w=read_float(w)
+    h=read_float(h)
+    color_mode,color=read_color(color_or_texture)
+    if round=="round": round = True
+    rx=ry=0
+    if round:
+        rx=ry=15
+    opacity=1
+    fill="none"
+    if color_mode=="color":
+        if(type(color)==type((0,0))):
+            fill = "rgb(%s,%s,%s)"%color[:3]
+            if(len(color)>3):
+                opacity=color[3]/255.0
+    if color_mode=="texture":
+        fill = "url(#%s)"%color
+    context.add(context.rect(
+        (mm(offset[0]+x),mm(offset[1]+y)),
+        (mm(w),mm(h)),
+        fill=fill,
+        stroke=stroke,
+        rx=rx,ry=ry,
+        opacity=opacity
+    ))
+def addimage(img,x,y,w,h,*a,**kwargs):
+    offset = kwargs["offset"]
+    context.add(context.image("../images/"+img,x=mm(offset[0]+x),y=mm(offset[1]+y),size=(mm(w),mm(h))))
+def addlist(items,x,y,spacing,text_class,*a,**kwargs):
+    offset = kwargs["offset"]
+    for i,item in enumerate(items.split(",")):
+        addtext(item,x,y+i*spacing,text_class=text_class,offset=offset)
+        
+def substitute(card,s):
+    if not type(s)==type(""):
+        return s
+    if s.startswith("$"):
+        return card[s[1:]]
+    if s.startswith("!"):
+        return eval(s[1:])
+    return s
+    
 def draw_card(root,card,x,y):
-    if card["type"]=="pirate":
-        draw_pirate(root,card,x,y)
-    if card["type"]=="skill":
-        draw_skill(root,card,x,y)
-def draw_pirate(root,card,x,y):
-    root.add(root.rect((mm(x),mm(y)),(mm(cardw),mm(cardh)),fill="url(#paper_texture.jpg)",stroke="black",rx=15,ry=15))
-    root.add(root.text(card["name"],x=[mm(x+63/2)],y=[mm(y+6)],text_anchor="middle",font_size=LARGE_FONT_SIZE,font_family="'Source Sans Pro', sans-serif"))
-    for i,trait in enumerate(card["traits"].split(",")):
-        root.add(root.text(trait,x=[mm(x+63-25)],y=[mm(y+15+i*3)],font_size=SMALL_FONT_SIZE,font_family="'Source Sans Pro', sans-serif"))
-    if "photo" in card:
-        root.add(root.image("../images/"+card["photo"],x=mm(x+5),y=mm(y+7),size=(mm(28),mm(26))))
-    if "description" in card:
-        root.add(  root.rect((mm(x+5),mm(y+53)),
-                                    (mm(63-5*2),mm(30)), 
-                                    fill="rgb(255,255,255)",
-                                    fill_opacity=0.4)  
-        )
-        root.add(wrapped_text(card["description"],x=mm(x+7),y=mm(y+57),columns=30,rows=6,font_size=MED_FONT_SIZE,font_family="'Source Sans Pro', sans-serif"))
-def draw_skill(root,card,x,y):
-    root.add(root.rect((mm(x),mm(y)),("63mm","88mm"),fill="url(#sail_texture.jpg)",stroke="black",rx=15,ry=15))
-    root.add(root.text(card["name"],x=[mm(x+63/2)],y=[mm(y+6)],text_anchor="middle",font_size=LARGE_FONT_SIZE,font_family="'Source Sans Pro', sans-serif"))
-    for i,trait in enumerate(card.get("traits","").split(",")):
-        root.add(root.text(trait,x=[mm(x+63-25)],y=[mm(y+15+i*3)],font_size=SMALL_FONT_SIZE,font_family="'Source Sans Pro', sans-serif"))
-    if "photo" in card:
-        root.add(root.image("../images/"+card["photo"],x=mm(x+5),y=mm(y+7),size=(mm(28),mm(26))))
-    if "description" in card:
-        root.add(  root.rect((mm(x+5),mm(y+53)),
-                                    (mm(63-5*2),mm(30)), 
-                                    fill="rgb(255,255,255)",
-                                    fill_opacity=0.4)  
-        )
-        root.add(wrapped_text(card["description"],x=mm(x+7),y=mm(y+57),columns=30,rows=6,font_size=MED_FONT_SIZE,font_family="'Source Sans Pro', sans-serif"))
+    global context
+    context = root
+    template = templates[card["type"]]
+    for artifact in template:
+        func = eval("add"+artifact[0])
+        vals = artifact[1:][:]
+        for i in range(len(vals)):
+            vals[i] = substitute(card,vals[i])
+        func(offset=[x,y],*vals)
 
 def output_cards():
     page=0
     drawn_sheet1 = False
     sheet1 = svgwrite.Drawing("output/cards_page%.2d.svg"%page,size=(mm(pagewidth),mm(pageheight)))
-    init_patterns(sheet1)
+    init_sheet(sheet1)
     x,y=(0,0)
     for card in all_cards:
         for card_num in range(card.get("count",1)):
@@ -128,7 +219,7 @@ def output_cards():
                     sheet1.save()
                     drawn_sheet1 = False
                     sheet1 = svgwrite.Drawing("output/cards_page%.2d.svg"%page,size=(mm(pagewidth),mm(pageheight)))
-                    init_patterns(sheet1)
+                    init_sheet(sheet1)
     cardsheet.save()
     if drawn_sheet1:
         sheet1.save()
