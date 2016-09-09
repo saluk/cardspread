@@ -128,6 +128,16 @@ def read_float(s):
     if(type(s)==type("")):
         return float(eval(s))
     return s
+def read_x(s):
+    x = read_float(s)
+    if x<0:
+        x+=cardw
+    return x
+def read_y(s):
+    y = read_float(s)
+    if y<0:
+        y+=cardh
+    return y
 def read_wrap(s):
     if type(s) == type("") and "(" in s and ")" in s:
         return tuple([int(x) for x in s[s.find("(")+1:s.find(")")].split(",")])
@@ -136,8 +146,8 @@ def read_text(s):
 def addtext(text,x,y,anchor="start",text_class="desc",wrap=False,*a,**kwargs):
     offset = kwargs["offset"]
     text = read_text(text)
-    x=read_float(x)
-    y=read_float(y)
+    x=read_x(x)
+    y=read_y(y)
     wrap=read_wrap(wrap)
     if wrap:
         element = wrapped_text(text,mm(offset[0]+x),mm(offset[1]+y),wrap[0],wrap[1],wrap[2],class_=text_class,text_anchor=anchor)
@@ -147,8 +157,8 @@ def addtext(text,x,y,anchor="start",text_class="desc",wrap=False,*a,**kwargs):
 def addrect(x,y,w,h,color_or_texture=None,stroke="",round=False,*a,**kwargs):
     offset = kwargs["offset"]
     color = None
-    x=read_float(x)
-    y=read_float(y)
+    x=read_x(x)
+    y=read_y(y)
     w=read_float(w)
     h=read_float(h)
     color_mode,color=read_color(color_or_texture)
@@ -175,11 +185,9 @@ def addrect(x,y,w,h,color_or_texture=None,stroke="",round=False,*a,**kwargs):
     ))
 def addimage(img,x,y,w,h,*a,**kwargs):
     offset = kwargs["offset"]
+    x = read_x(x)
+    y = read_y(y)
     context.add(context.image("../images/"+img,x=mm(offset[0]+x),y=mm(offset[1]+y),size=(mm(w),mm(h))))
-def addlist(items,x,y,spacing,text_class,*a,**kwargs):
-    offset = kwargs["offset"]
-    for i,item in enumerate(items.split(",")):
-        addtext(item,x,y+i*spacing,text_class=text_class,offset=offset)
         
 def substitute(card,s):
     if not type(s)==type(""):
