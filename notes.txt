@@ -1,0 +1,21 @@
+http://listverse.com/2014/06/24/10-crazy-exploits-from-the-age-of-sail/
+
+canons can be deadly to their users
+gusts of wind can capsize a boat
+military ships can become pirate vessels
+range matters - little ships firing from afar can take out big ones that cant shoot back
+make your ship look like another ship to trick them
+
+http://www.rmg.co.uk/discover/explore/life-sea-age-sail
+
+
+Something that could work for navigation:
+navigation cards have a front and back
+the back has an approximate wind force and current
+the front tells you how you move depending on ship setting
+each turn you add a new navigation card to the chain, and by the end of the turn put down a ship setting
+every so often (3 or 4 turns?) you flip over all of the unflipped navigation cards and resolve them
+according to what the ship was set to at the time
+if your destination was within some range of your location at any of those points, you arrive
+maybe you draw a different navigation card depending on weather type, with stormy weather navigation
+having more inscruitable information

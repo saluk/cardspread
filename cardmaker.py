@@ -131,8 +131,11 @@ def read_float(s):
 def read_wrap(s):
     if type(s) == type("") and "(" in s and ")" in s:
         return tuple([int(x) for x in s[s.find("(")+1:s.find(")")].split(",")])
+def read_text(s):
+    return s.replace("<br>","\n")
 def addtext(text,x,y,anchor="start",text_class="desc",wrap=False,*a,**kwargs):
     offset = kwargs["offset"]
+    text = read_text(text)
     x=read_float(x)
     y=read_float(y)
     wrap=read_wrap(wrap)
