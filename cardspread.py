@@ -8,10 +8,6 @@ if not os.path.exists("output"):
     
 global context
 
-SMALL_FONT_SIZE=9
-MED_FONT_SIZE=12
-LARGE_FONT_SIZE=20
-
 import pyexcel
 data = pyexcel.get_book(file_name="cards.ods")
 all_cards = []
@@ -31,12 +27,12 @@ for sheet_name in data.sheets:
             templates[reading_templates].append(template_line)
             
     for card in pyexcel.get_records(file_name="cards.ods",sheet_name=sheet_name,name_columns_by_row=0):
-        if not card.get("count",None) or card["count"]=="template":
+        if not type(card.get("count",""))==type(1):
             break
         all_cards.append(card)
 print(templates)
 print(all_cards)
-count_cards = sum([c.get("count",1) for c in all_cards])
+count_cards = sum([int(c.get("count",1)) for c in all_cards])
 print(count_cards)
 
 import svgwrite
@@ -75,27 +71,13 @@ def make_img_pattern(root,img,width,height):
 def init_patterns(root):
     make_img_pattern(root,"paper_texture.jpg",600,450)
     make_img_pattern(root,"sail_texture.jpg",253,355)
+style_css=None
+if os.path.exists("style.css"):
+    with open("style.css") as f:
+        style_css=f.read()
 def init_style(root):
-    root.defs.add(root.style("""<style>
-        text {
-            font-size: %(med_font_size)spt;
-            font-family: "Source sans pro";
-        }
-
-        text.title {
-            font-size: %(large_font_size)spt;
-        }
-
-        text.desc {
-            font-size: %(med_font_size)spt;
-        }
-
-        text.tiny {
-            font-size: %(small_font_size)spt;
-        }
-        </style>
-        """%{'small_font_size':SMALL_FONT_SIZE,'med_font_size':MED_FONT_SIZE,'large_font_size':LARGE_FONT_SIZE}
-    ))
+    if style_css:
+        root.defs.add(root.style(style_css))
 def init_sheet(sheet):
     init_style(sheet)
     init_patterns(sheet)
