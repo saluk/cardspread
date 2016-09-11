@@ -37,6 +37,7 @@ print(count_cards)
 
 import svgwrite
 import textwrap
+from PIL import Image
 
 def conv_mm(num):
     num,unit = svgwrite.utils.split_coordinate(num)
@@ -62,15 +63,16 @@ num_pages = math.ceil(count_cards/card_per_page)
 
 print(num_pages,count_cards,card_per_page,mm(pageheight*num_pages))
 cardsheet = svgwrite.Drawing("output/all_cards.svg",size=(mm(pagewidth),mm(pageheight*(num_pages))))
+patterns = {}
 
-def make_img_pattern(root,img,width,height):
+def make_img_pattern(root,img):
+    with Image.open("images/%s"%img) as im:
+        width,height = im.size
     pattern = root.pattern(id=img,patternUnits="userSpaceOnUse",
                     width=width,height=height)
     pattern.add(root.image("../images/%s"%img,x=0,y=0,width=width,height=height))
+    patterns[(root,img)] = pattern
     root.add(pattern)
-def init_patterns(root):
-    make_img_pattern(root,"paper_texture.jpg",600,450)
-    make_img_pattern(root,"sail_texture.jpg",253,355)
 style_css=None
 if os.path.exists("style.css"):
     with open("style.css") as f:
@@ -80,7 +82,6 @@ def init_style(root):
         root.defs.add(root.style(style_css))
 def init_sheet(sheet):
     init_style(sheet)
-    init_patterns(sheet)
 init_sheet(cardsheet)
 
 
@@ -157,6 +158,8 @@ def addrect(x,y,w,h,color_or_texture=None,stroke="",round=False,*a,**kwargs):
                 opacity=color[3]/255.0
     if color_mode=="texture":
         fill = "url(#%s)"%color
+        if (context,color) not in patterns:
+            make_img_pattern(context,color)
     context.add(context.rect(
         (mm(offset[0]+x),mm(offset[1]+y)),
         (mm(w),mm(h)),
