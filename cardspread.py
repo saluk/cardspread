@@ -72,14 +72,19 @@ def make_img_pattern(root,img):
                     width=width,height=height)
     pattern.add(root.image("../images/%s"%img,x=0,y=0,width=width,height=height))
     patterns[(root,img)] = pattern
-    root.add(pattern)
+    root.defs.add(pattern)
 style_css=None
 if os.path.exists("style.css"):
+    #style_css = "style.css"
     with open("style.css") as f:
         style_css=f.read()
 def init_style(root):
     if style_css:
         root.defs.add(root.style(style_css))
+    textshadow = root.filter(id="textshadow",x="-20%",y="-20%",width="140%",height="140%")
+    textshadow.feGaussianBlur("SourceAlpha",stdDeviation="4 4",result="shadow")
+    textshadow.feOffset(dx="-1",dy="-1")
+    root.defs.add(textshadow)
 def init_sheet(sheet):
     init_style(sheet)
 init_sheet(cardsheet)
@@ -124,18 +129,30 @@ def read_y(s):
 def read_wrap(s):
     if type(s) == type("") and "(" in s and ")" in s:
         return tuple([int(x) for x in s[s.find("(")+1:s.find(")")].split(",")])
+def read_shadow(s):
+    if s=="shadow":
+        return True
+    return False
 def read_text(s):
     return s.replace("<br>","\n")
-def addtext(text,x,y,anchor="start",text_class="desc",wrap=False,*a,**kwargs):
+def addtext(text,x,y,anchor="start",text_class="desc",wrap=False,shadow=False,*a,**kwargs):
     offset = kwargs["offset"]
     text = read_text(text)
     x=read_x(x)
     y=read_y(y)
     wrap=read_wrap(wrap)
+    shadow=read_shadow(shadow)
+    "filter:url(#textshadow)"
     if wrap:
         element = wrapped_text(text,mm(offset[0]+x),mm(offset[1]+y),wrap[0],wrap[1],wrap[2],class_=text_class,text_anchor=anchor)
+        if shadow:
+            context.add(wrapped_text(text,mm(offset[0]+x),mm(offset[1]+y),wrap[0],wrap[1],wrap[2],class_=text_class,text_anchor=anchor,
+            style="filter:url(#textshadow);fill:black"))
     else:
         element = context.text(text,x=[mm(offset[0]+x)],y=[mm(offset[1]+y)],class_=text_class,text_anchor=anchor)
+        if shadow:
+            context.add(context.text(text,x=[mm(offset[0]+x)],y=[mm(offset[1]+y)],class_=text_class,text_anchor=anchor,
+            style="filter:url(#textshadow);fill:black"))
     context.add(element)
 def addrect(x,y,w,h,color_or_texture=None,stroke="",round=False,*a,**kwargs):
     offset = kwargs["offset"]
@@ -188,7 +205,10 @@ def draw_card(root,card,x,y):
     context = root
     template = templates[card["type"]]
     for artifact in template:
-        func = eval("add"+artifact[0])
+        try:
+            func = eval("add"+artifact[0])
+        except NameError:
+            continue
         vals = artifact[1:][:]
         for i in range(len(vals)):
             vals[i] = substitute(card,vals[i])
