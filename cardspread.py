@@ -23,17 +23,18 @@ for sheet_name in data.sheets:
             print("found template",reading_templates)
         elif reading_templates:
             if not template_line[0]:
-                break
+                reading_templates = False
+                continue
             templates[reading_templates].append(template_line)
             
     for card in pyexcel.get_records(file_name="cards.ods",sheet_name=sheet_name,name_columns_by_row=0):
         if not type(card.get("count",""))==type(1):
             break
         all_cards.append(card)
-print(templates)
-print(all_cards)
+print("TEMPLATES:\n",templates)
+print("ALL_CARDS:\n",all_cards)
 count_cards = sum([int(c.get("count",1)) for c in all_cards])
-print(count_cards)
+print("TOTAL COUNT:\n",count_cards)
 
 import svgwrite
 import textwrap
@@ -186,10 +187,54 @@ def addrect(x,y,w,h,color_or_texture=None,stroke="",round=False,*a,**kwargs):
         opacity=opacity
     ))
 def addimage(img,x,y,w,h,*a,**kwargs):
+    if not img.strip(): return
     offset = kwargs["offset"]
     x = read_x(x)
     y = read_y(y)
     context.add(context.image("../images/"+img,x=mm(offset[0]+x),y=mm(offset[1]+y),size=(mm(w),mm(h))))
+svgpieces = []
+def addsvg(svgpath,*args,**kwargs):
+    thecard = kwargs["thecard"]
+    offset = kwargs["offset"]
+    #with open("svgs/"+svgpath) as f:
+    #    xml = f.read().encode("utf8")
+    #xml = xml[xml.find("<svg"):xml.find("</svg>")+6]
+
+    import lxml.etree as ET
+    tree = ET.parse("svgs/"+svgpath)
+    root = tree.getroot()
+
+    def gtag(node):
+        return ET.QName(node.tag).localname
+
+    def xml_substitute(text):
+        if not text: return text
+        for key in thecard:
+            if "$"+key+";" in text:
+                text = text.replace("$"+key+";",thecard[key])
+        return text
+
+    def xml_id_sub(node):
+        for key in thecard:
+            if node.get("id") == "$"+key:
+                if gtag(node) == "text":
+                    node.text = thecard[key]
+                    for child in node:
+                        node.remove(child)
+        return node
+
+    def process_node(node):
+        node.text = xml_substitute(node.text)
+        node = xml_id_sub(node)
+        for child in node:
+            pass
+            process_node(child)
+    process_node(root)
+
+    xml = ET.tostring(root,encoding="unicode",pretty_print=True)
+    #xml = xml[xml.find("<svg"):xml.find("</svg>")+6]
+    svgpieces.append((offset[0]*3.56,offset[1]*3.56,xml))
+    context.add(context.g(id="svgpiece_%d"%(len(svgpieces)-1)))
         
 def substitute(card,s):
     if not type(s)==type(""):
@@ -203,7 +248,7 @@ def substitute(card,s):
 def draw_card(root,card,x,y):
     global context
     context = root
-    template = templates[card["type"]]
+    template = templates.get(card["type"],[])
     for artifact in template:
         try:
             func = eval("add"+artifact[0])
@@ -212,7 +257,20 @@ def draw_card(root,card,x,y):
         vals = artifact[1:][:]
         for i in range(len(vals)):
             vals[i] = substitute(card,vals[i])
-        func(offset=[x,y],*vals)
+        func(offset=[x,y],thecard=card,*vals)
+
+def save_sheet(sheet):
+    sheet.save()
+    f = open(sheet.filename,"r")
+    xml = f.read()
+    f.close()
+    for i in range(len(svgpieces)):
+        xml = xml.replace('<g id="svgpiece_%d" />'%i,"""
+        <g id="svgpiece_%d" transform="translate(%d,%d)">%s</g>
+        """%(i,svgpieces[i][0],svgpieces[i][1],svgpieces[i][2]))
+    f = open(sheet.filename,"w")
+    f.write(xml)
+    f.close()
 
 def output_cards():
     page=0
@@ -232,14 +290,15 @@ def output_cards():
                 if y+cardh>pageheight:
                     page += 1
                     y = 0
-                    sheet1.save()
+                    save_sheet(sheet1)
                     drawn_sheet1 = False
                     sheet1 = svgwrite.Drawing("output/cards_page%.2d.svg"%page,size=(mm(pagewidth),mm(pageheight)))
                     init_sheet(sheet1)
-    cardsheet.save()
+    save_sheet(cardsheet)
     if drawn_sheet1:
-        sheet1.save()
+        save_sheet(sheet1)
 
+OUTPUT_SVG=0
 if __name__ == "__main__":
     import sys
     if len(sys.argv)==3:
@@ -248,3 +307,8 @@ if __name__ == "__main__":
         print(conv_mm("11in")-object_pos-object_height)
     else:
         output_cards()
+    if OUTPUT_SVG:
+        import cairosvg
+        os.chdir("output")
+        with open("all_cards.svg","r",encoding="utf8") as f:
+            cairosvg.svg2png(file_obj=f,write_to="all_cards.png")
