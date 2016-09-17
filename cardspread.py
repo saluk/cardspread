@@ -7,6 +7,7 @@ if not os.path.exists("output"):
     os.mkdir("output")
     
 global context
+settings = {"cardw":63,"cardh":88,"spacing":2}
 
 import pyexcel
 data = pyexcel.get_book(file_name="cards.ods")
@@ -15,24 +16,35 @@ templates = {}
 for sheet_name in data.sheets:
     sheet = data.sheet_by_name(sheet_name)
     
-    reading_templates = False
-    for template_line in pyexcel.get_sheet(file_name="cards.ods",sheet_name=sheet_name).to_array():
-        if template_line[0]=="template":
-            reading_templates = template_line[1]
+    reading_mode = None
+    reading_templates = None
+    for line in pyexcel.get_sheet(file_name="cards.ods",sheet_name=sheet_name).to_array():
+        if line[0]=="template":
+            reading_mode = "templates"
+            reading_templates = line[1]
             templates[reading_templates] = []
             print("found template",reading_templates)
-        elif reading_templates:
-            if not template_line[0]:
-                reading_templates = False
+        elif line[0]=="variables":
+            reading_mode = "variables"
+        elif reading_mode=="templates":
+            if not line[0]:
+                reading_mode = None
                 continue
-            templates[reading_templates].append(template_line)
+            templates[reading_templates].append(line)
+        elif reading_mode=="variables":
+            if not line[0]:
+                reading_mode = None
+                continue
+            print(line[0],line[1])
+            settings[line[0]] = eval(str(line[1]))
+            print(settings)
             
     for card in pyexcel.get_records(file_name="cards.ods",sheet_name=sheet_name,name_columns_by_row=0):
         if not type(card.get("count",""))==type(1):
             break
         all_cards.append(card)
-print("TEMPLATES:\n",templates)
-print("ALL_CARDS:\n",all_cards)
+#print("TEMPLATES:\n",templates)
+#print("ALL_CARDS:\n",all_cards)
 count_cards = sum([int(c.get("count",1)) for c in all_cards])
 print("TOTAL COUNT:\n",count_cards)
 
@@ -45,21 +57,18 @@ def conv_mm(num):
     factors = {"in":25.4,"cm":10,"mm":1}
     return num*factors[unit]
 def mm(num):
-    return "%dmm"%num
+    return "%fmm"%num
 
-cardw = 63
-cardh = 88
-spacing = 2
 pagewidth = conv_mm("8.5in")
 pageheight = conv_mm("11in")
 card_per_page = 0
 x=y=0
-while y+cardh<pageheight:
-    while x+cardw<pagewidth:
+while y+settings['cardh']<pageheight:
+    while x+settings['cardw']<pagewidth:
         card_per_page += 1
-        x+=cardw+spacing 
+        x+=settings['cardw']+settings['spacing']        
     x=0
-    y+=cardh+spacing
+    y+=settings['cardh']+settings['spacing']
 num_pages = math.ceil(count_cards/card_per_page)
 
 print(num_pages,count_cards,card_per_page,mm(pageheight*num_pages))
@@ -120,7 +129,7 @@ def read_float(s):
 def read_x(s):
     x = read_float(s)
     if x<0:
-        x+=cardw
+        x+=settings['cardw']
     return x
 def read_y(s):
     y = read_float(s)
@@ -242,7 +251,7 @@ def substitute(card,s):
     if s.startswith("$"):
         return card[s[1:]]
     if s.startswith("!"):
-        return eval(s[1:])
+        return settings.get(s[1:])
     return s
     
 def draw_card(root,card,x,y):
@@ -261,7 +270,8 @@ def draw_card(root,card,x,y):
 
 def save_sheet(sheet):
     sheet.save()
-    f = open(sheet.filename,"r")
+    return
+    f = open(sheet.filename,"r",encoding="utf8")
     xml = f.read()
     f.close()
     for i in range(len(svgpieces)):
@@ -277,17 +287,17 @@ def output_cards():
     drawn_sheet1 = False
     sheet1 = svgwrite.Drawing("output/cards_page%.2d.svg"%page,size=(mm(pagewidth),mm(pageheight)))
     init_sheet(sheet1)
-    x,y=(0,0)
+    x,y=(0.0,0.0)
     for card in all_cards:
         for card_num in range(card.get("count",1)):
             draw_card(cardsheet,card,x,y+page*pageheight)
             draw_card(sheet1,card,x,y)
             drawn_sheet1 = True
-            x+=cardw+spacing
-            if x+cardw>pagewidth:
+            x+=settings['cardw']+settings['spacing']
+            if x+settings['cardw']>pagewidth:
                 x=0
-                y+=cardh+spacing
-                if y+cardh>pageheight:
+                y+=settings['cardh']+settings['spacing']
+                if y+settings['cardh']>pageheight:
                     page += 1
                     y = 0
                     save_sheet(sheet1)
