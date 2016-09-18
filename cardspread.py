@@ -65,8 +65,8 @@ patterns = {}
 def make_img_pattern(root,img):
     with Image.open("images/%s"%img) as im:
         width,height = im.size
-    pattern = root.pattern(id=img,patternUnits="userSpaceOnUse",
-                    width=width,height=height)
+    pattern = root.pattern(id=img,patternUnits="objectBoundingBox",
+                    width=1,height=1)
     pattern.add(root.image("../images/%s"%img,x=0,y=0,width=width,height=height))
     patterns[(root,img)] = pattern
     root.defs.add(pattern)
@@ -86,7 +86,14 @@ def init_sheet(sheet):
     init_style(sheet)
 
 
-def wrapped_text(text,x,y,columns,rows,vspace=5,**args):
+def wrapped_text(text,x,y,w,h,**args):
+    text_class = args["class_"]
+    if "wrap_"+text_class not in settings:
+        raise Exception("No wrap settings found for "+text_class)
+    cw,ch = settings["wrap_"+text_class]
+    columns = int(w/cw)
+    vspace = ch+1.5
+    rows = int(h/ch)
     lines = []
     for line in text.split("\n"):
         lines.append("")
@@ -98,7 +105,7 @@ def wrapped_text(text,x,y,columns,rows,vspace=5,**args):
             lines[-1] = lines[-1]+spc+wd
     text = context.text("",x=[x],y=[y],**args)
     for line in lines[:rows]:
-        text.add(context.tspan(line,x=[x],y=[y]))
+        text.add(context.tspan(line.strip(),x=[x],y=[y]))
         y=mm(conv_mm(y)+vspace)
     return text
 
@@ -140,7 +147,7 @@ def addtext(text,x,y,anchor="start",text_class="desc",wrap=False,shadow=False,*a
     shadow=read_shadow(shadow)
     "filter:url(#textshadow)"
     if wrap:
-        element = wrapped_text(text,mm(offset[0]+x),mm(offset[1]+y),wrap[0],wrap[1],wrap[2],class_=text_class,text_anchor=anchor)
+        element = wrapped_text(text,mm(offset[0]+x),mm(offset[1]+y),wrap[0],wrap[1],class_=text_class,text_anchor=anchor)
         if shadow:
             context.add(wrapped_text(text,mm(offset[0]+x),mm(offset[1]+y),wrap[0],wrap[1],wrap[2],class_=text_class,text_anchor=anchor,
             style="filter:url(#textshadow);fill:black"))
