@@ -10,43 +10,44 @@ global context
 settings = {"cardw":63,"cardh":88,"spacing":2}
 
 import pyexcel
-data = pyexcel.get_book(file_name="cards.ods")
+
 all_cards = []
 templates = {}
-for sheet_name in data.sheets:
-    sheet = data.sheet_by_name(sheet_name)
-    
-    reading_mode = None
-    reading_templates = None
-    for line in pyexcel.get_sheet(file_name="cards.ods",sheet_name=sheet_name).to_array():
-        if line[0]=="template":
-            reading_mode = "templates"
-            reading_templates = line[1]
-            templates[reading_templates] = []
-            print("found template",reading_templates)
-        elif line[0]=="variables":
-            reading_mode = "variables"
-        elif reading_mode=="templates":
-            if not line[0]:
-                reading_mode = None
-                continue
-            templates[reading_templates].append(line)
-        elif reading_mode=="variables":
-            if not line[0]:
-                reading_mode = None
-                continue
-            print(line[0],line[1])
-            settings[line[0]] = eval(str(line[1]))
-            print(settings)
-            
-    for card in pyexcel.get_records(file_name="cards.ods",sheet_name=sheet_name,name_columns_by_row=0):
-        if not type(card.get("count",""))==type(1):
-            break
-        all_cards.append(card)
-#print("TEMPLATES:\n",templates)
-#print("ALL_CARDS:\n",all_cards)
-count_cards = sum([int(c.get("count",1)) for c in all_cards])
-print("TOTAL COUNT:\n",count_cards)
+
+def read_card_data(filename):
+    data = pyexcel.get_book(file_name=filename)
+    for sheet_name in data.sheets:
+        sheet = data.sheet_by_name(sheet_name)
+        
+        reading_mode = None
+        reading_templates = None
+        for line in pyexcel.get_sheet(file_name="cards.ods",sheet_name=sheet_name).to_array():
+            if line[0]=="template":
+                reading_mode = "templates"
+                reading_templates = line[1]
+                templates[reading_templates] = []
+                print("found template",reading_templates)
+            elif line[0]=="variables":
+                reading_mode = "variables"
+            elif reading_mode=="templates":
+                if not line[0]:
+                    reading_mode = None
+                    continue
+                templates[reading_templates].append(line)
+            elif reading_mode=="variables":
+                if not line[0]:
+                    reading_mode = None
+                    continue
+                print(line[0],line[1])
+                settings[line[0]] = eval(str(line[1]))
+                print(settings)
+                
+        for card in pyexcel.get_records(file_name="cards.ods",sheet_name=sheet_name,name_columns_by_row=0):
+            if not type(card.get("count",""))==type(1):
+                break
+            all_cards.append(card)
+    all_cards[:] = [card for card in all_cards if card["type"] in templates]
+    return all_cards,templates
 
 import svgwrite
 import textwrap
@@ -59,20 +60,6 @@ def conv_mm(num):
 def mm(num):
     return "%fmm"%num
 
-pagewidth = conv_mm("8.5in")
-pageheight = conv_mm("11in")
-card_per_page = 0
-x=y=0
-while y+settings['cardh']<pageheight:
-    while x+settings['cardw']<pagewidth:
-        card_per_page += 1
-        x+=settings['cardw']+settings['spacing']        
-    x=0
-    y+=settings['cardh']+settings['spacing']
-num_pages = math.ceil(count_cards/card_per_page)
-
-print(num_pages,count_cards,card_per_page,mm(pageheight*num_pages))
-cardsheet = svgwrite.Drawing("output/all_cards.svg",size=(mm(pagewidth),mm(pageheight*(num_pages))))
 patterns = {}
 
 def make_img_pattern(root,img):
@@ -97,7 +84,6 @@ def init_style(root):
     root.defs.add(textshadow)
 def init_sheet(sheet):
     init_style(sheet)
-init_sheet(cardsheet)
 
 
 def wrapped_text(text,x,y,columns,rows,vspace=5,**args):
@@ -110,9 +96,9 @@ def wrapped_text(text,x,y,columns,rows,vspace=5,**args):
                 lines.append("")
                 spc = ""
             lines[-1] = lines[-1]+spc+wd
-    text = cardsheet.text("",x=[x],y=[y],**args)
+    text = context.text("",x=[x],y=[y],**args)
     for line in lines[:rows]:
-        text.add(cardsheet.tspan(line,x=[x],y=[y]))
+        text.add(context.tspan(line,x=[x],y=[y]))
         y=mm(conv_mm(y)+vspace)
     return text
 
@@ -144,7 +130,7 @@ def read_shadow(s):
         return True
     return False
 def read_text(s):
-    return s.replace("<br>","\n")
+    return str(s).replace("<br>","\n")
 def addtext(text,x,y,anchor="start",text_class="desc",wrap=False,shadow=False,*a,**kwargs):
     offset = kwargs["offset"]
     text = read_text(text)
@@ -282,7 +268,26 @@ def save_sheet(sheet):
     f.write(xml)
     f.close()
 
-def output_cards():
+def output_cards(filename):
+    read_card_data(filename)
+    count_cards = sum([int(c.get("count",1)) for c in all_cards])
+    print("TOTAL COUNT:\n",count_cards)
+    pagewidth = conv_mm("8.5in")
+    pageheight = conv_mm("11in")
+    card_per_page = 0
+    x=y=0
+    while y+settings['cardh']<pageheight:
+        while x+settings['cardw']<pagewidth:
+            card_per_page += 1
+            x+=settings['cardw']+settings['spacing']        
+        x=0
+        y+=settings['cardh']+settings['spacing']
+    num_pages = math.ceil(count_cards/card_per_page)
+
+    print(num_pages,count_cards,card_per_page,mm(pageheight*num_pages))
+    cardsheet = svgwrite.Drawing("output/all_cards.svg",size=(mm(pagewidth),mm(pageheight*(num_pages))))
+    init_sheet(cardsheet)
+
     page=0
     drawn_sheet1 = False
     sheet1 = svgwrite.Drawing("output/cards_page%.2d.svg"%page,size=(mm(pagewidth),mm(pageheight)))
@@ -311,12 +316,8 @@ def output_cards():
 OUTPUT_SVG=0
 if __name__ == "__main__":
     import sys
-    if len(sys.argv)==3:
-        object_pos = float(sys.argv[1])
-        object_height = float(sys.argv[2])
-        print(conv_mm("11in")-object_pos-object_height)
-    else:
-        output_cards()
+    cards = sys.argv[1]
+    output_cards(cards)
     if OUTPUT_SVG:
         import cairosvg
         os.chdir("output")
