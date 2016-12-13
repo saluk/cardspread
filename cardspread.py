@@ -25,7 +25,10 @@ def read_card_data(filename):
             if line[0]=="template":
                 reading_mode = "templates"
                 reading_templates = line[1]
-                templates[reading_templates] = []
+                props = {}
+                if line[2]: props["cardw"] = line[2]
+                if line[3]: props["cardh"] = line[3]
+                templates[reading_templates] = {"props":props,"artifacts":[]}
                 print("found template",reading_templates)
             elif line[0]=="variables":
                 reading_mode = "variables"
@@ -33,7 +36,7 @@ def read_card_data(filename):
                 if not line[0]:
                     reading_mode = None
                     continue
-                templates[reading_templates].append(line)
+                templates[reading_templates]["artifacts"].append(line)
             elif reading_mode=="variables":
                 if not line[0]:
                     reading_mode = None
@@ -47,6 +50,8 @@ def read_card_data(filename):
                 break
             all_cards.append(card)
     all_cards[:] = [card for card in all_cards if card["type"] in templates]
+    for card in all_cards:
+        card["template"] = templates[card["type"]]
     return all_cards,templates
 
 import svgwrite
@@ -63,8 +68,11 @@ def mm(num):
 patterns = {}
 
 def make_img_pattern(root,img):
-    with Image.open("images/%s"%img) as im:
-        width,height = im.size
+    try:
+        with Image.open("images/%s"%img) as im:
+            width,height = im.size
+    except FileNotFoundError:
+        width,height=0,0
     pattern = root.pattern(id=img,patternUnits="objectBoundingBox",
                     width=1,height=1)
     pattern.add(root.image("../images/%s"%img,x=0,y=0,width=width,height=height))
@@ -114,6 +122,8 @@ def read_color(s):
         return "texture",s
     if type(s) == type("") and "(" in s and ")" in s:
         return "color",tuple([int(x) for x in s[s.find("(")+1:s.find(")")].split(",")])
+    if type(s) == type("") and s.startswith("#"):
+        return "rawcolor",s
     return s
 def read_float(s):
     if(type(s)==type("")):
@@ -180,6 +190,8 @@ def addrect(x,y,w,h,color_or_texture=None,stroke="",round=False,*a,**kwargs):
         fill = "url(#%s)"%color
         if (context,color) not in patterns:
             make_img_pattern(context,color)
+    if color_mode=="rawcolor":
+        fill = color
     context.add(context.rect(
         (mm(offset[0]+x),mm(offset[1]+y)),
         (mm(w),mm(h)),
@@ -244,14 +256,14 @@ def substitute(card,s):
     if s.startswith("$"):
         return card[s[1:]]
     if s.startswith("!"):
-        return settings.get(s[1:])
+        return card["template"]["props"].get(s[1:],settings.get(s[1:]))
     return s
     
 def draw_card(root,card,x,y):
     global context
     context = root
-    template = templates.get(card["type"],[])
-    for artifact in template:
+    artifacts = card["template"]["artifacts"]
+    for artifact in artifacts:
         try:
             func = eval("add"+artifact[0])
         except NameError:
@@ -300,16 +312,31 @@ def output_cards(filename):
     sheet1 = svgwrite.Drawing("output/cards_page%.2d.svg"%page,size=(mm(pagewidth),mm(pageheight)))
     init_sheet(sheet1)
     x,y=(0.0,0.0)
+    last_type = ""
     for card in all_cards:
         for card_num in range(card.get("count",1)):
+
+            if last_type and last_type != card["type"]:
+                x,y=(0.0,0.0)
+                page += 1
+                save_sheet(sheet1)
+                drawn_sheet1 = False
+                sheet1 = svgwrite.Drawing("output/cards_page%.2d.svg"%page,size=(mm(pagewidth),mm(pageheight)))
+                init_sheet(sheet1)
+            last_type = card["type"]
+
+            cardw = read_float(card["template"]["props"].get("cardw",settings["cardw"]))
+            cardh = read_float(card["template"]["props"].get("cardh",settings["cardh"]))
+            cardspacing = card["template"]["props"].get("cardspacing",settings["spacing"])
+
             draw_card(cardsheet,card,x,y+page*pageheight)
             draw_card(sheet1,card,x,y)
             drawn_sheet1 = True
-            x+=settings['cardw']+settings['spacing']
-            if x+settings['cardw']>pagewidth:
+            x+=cardw+cardspacing
+            if x+cardw>pagewidth:
                 x=0
-                y+=settings['cardh']+settings['spacing']
-                if y+settings['cardh']>pageheight:
+                y+=cardh+cardspacing
+                if y+cardh>pageheight:
                     page += 1
                     y = 0
                     save_sheet(sheet1)
