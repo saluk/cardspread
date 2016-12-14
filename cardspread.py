@@ -5,6 +5,10 @@ import math
 import os
 if not os.path.exists("output"):
     os.mkdir("output")
+if not os.path.exists("output/cards"):
+    os.mkdir("output/cards")
+if not os.path.exists("output/tts_export"):
+    os.mkdir("output/tts_export")
     
 global context
 settings = {"cardw":63,"cardh":88,"spacing":2}
@@ -286,6 +290,15 @@ def save_sheet(sheet):
     f = open(sheet.filename,"w")
     f.write(xml)
     f.close()
+    
+def output_tts(card):
+    if "[TTS]" not in card: return
+    tts_type = card["[TTS]"]
+    with open("tts_exports/export_%s.json"%tts_type,"r") as f:
+        tts_json = f.read()
+    image_path = "file:///"+os.path.abspath("output/cards/%s.png"%card["name"]).replace("\\","/")
+    with open("output/tts_export/%s.json"%card["name"],"w") as f:
+        f.write(tts_json%{"face":image_path,"back":image_path,"name":card["name"]})
 
 def output_cards(filename):
     read_card_data(filename)
@@ -332,6 +345,17 @@ def output_cards(filename):
             draw_card(cardsheet,card,x,y+page*pageheight)
             draw_card(sheet1,card,x,y)
             drawn_sheet1 = True
+
+            if OUTPUT_SVG:
+                os.chdir("output")
+                import cairosvg
+                singlesheet = svgwrite.Drawing("output/card.svg",size=(mm(cardw),mm(cardh)))
+                init_sheet(singlesheet)
+                draw_card(singlesheet,card,0,0)
+                cairosvg.svg2png(bytestring=singlesheet.tostring().encode("utf8"),write_to="cards/%s.png"%card["name"])
+                os.chdir("..")
+            output_tts(card)
+
             x+=cardw+cardspacing
             if x+cardw>pagewidth:
                 x=0
@@ -347,7 +371,7 @@ def output_cards(filename):
     if drawn_sheet1:
         save_sheet(sheet1)
 
-OUTPUT_SVG=0
+OUTPUT_SVG=1
 if __name__ == "__main__":
     import sys
     cards = sys.argv[1]
@@ -355,5 +379,6 @@ if __name__ == "__main__":
     if OUTPUT_SVG:
         import cairosvg
         os.chdir("output")
-        with open("all_cards.svg","r",encoding="utf8") as f:
-            cairosvg.svg2png(file_obj=f,write_to="all_cards.png")
+        with open("all_cards.svg","rb") as f:
+            bytes = f.read()
+        cairosvg.svg2png(bytestring=bytes,write_to="all_cards.png")
