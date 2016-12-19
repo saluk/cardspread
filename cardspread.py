@@ -7,6 +7,8 @@ if not os.path.exists("output"):
     os.mkdir("output")
 if not os.path.exists("output/cards"):
     os.mkdir("output/cards")
+if not os.path.exists("output/decks"):
+    os.mkdir("output/decks")
 if not os.path.exists("output/tts_export"):
     os.mkdir("output/tts_export")
     
@@ -141,7 +143,7 @@ def read_x(s):
 def read_y(s):
     y = read_float(s)
     if y<0:
-        y+=cardh
+        y+=settings['cardh']
     return y
 def read_wrap(s):
     if type(s) == type("") and "(" in s and ")" in s:
@@ -204,12 +206,16 @@ def addrect(x,y,w,h,color_or_texture=None,stroke="",round=False,*a,**kwargs):
         rx=rx,ry=ry,
         opacity=opacity
     ))
-def addimage(img,x,y,w,h,*a,**kwargs):
+def addimage(img,x,y,w,h,test_field,*a,**kwargs):
     if not img.strip(): return
     offset = kwargs["offset"]
-    x = read_x(x)
-    y = read_y(y)
-    context.add(context.image("../images/"+img,x=mm(offset[0]+x),y=mm(offset[1]+y),size=(mm(w),mm(h))))
+    rx = read_x(x)
+    ry = read_y(y)
+    if test_field=="False":
+        return
+    settings["last_image_x"] = rx
+    settings["last_image_y"] = ry
+    context.add(context.image("../images/"+img,x=mm(offset[0]+rx),y=mm(offset[1]+ry),size=(mm(w),mm(h))))
 svgpieces = []
 def addsvg(svgpath,*args,**kwargs):
     thecard = kwargs["thecard"]
@@ -257,6 +263,10 @@ def addsvg(svgpath,*args,**kwargs):
 def substitute(card,s):
     if not type(s)==type(""):
         return s
+    if s.startswith("{") and s.endswith("}"):
+        result = eval(s[1:-1],card,settings)
+        print ("EVAL",s[1:-1],"->",result)
+        return str(result)
     if s.startswith("$"):
         return card[s[1:]]
     if s.startswith("!"):
@@ -291,14 +301,64 @@ def save_sheet(sheet):
     f.write(xml)
     f.close()
     
-def output_tts(card):
+def output_tts(card,decks):
+    pagewidth =card['cardw']*3
     if "[TTS]" not in card: return
     tts_type = card["[TTS]"]
+    if "deck" in tts_type:
+        deckname = tts_type.replace("deck_","")
+        if deckname not in decks:
+            drawing = svgwrite.Drawing("output/deck_%s.svg"%deckname,size=(mm(pagewidth),mm(card['cardh']*2)))
+            init_sheet(drawing)
+            decks[deckname] = {"face":"face","back":"back","drawing":drawing,"cards":[],"pen":[0,0],"lines":1,
+                                        "width":3,"height":2}
+        decks[deckname]["cards"].append(card)
+        x,y = decks[deckname]["pen"]
+        lines = decks[deckname]["lines"]
+        draw_card(decks[deckname]["drawing"],card,x,y)
+        x+=card['cardw']
+        if x+card['cardw']>pagewidth:
+            lines += 1
+            x = 0
+            y+=card['cardh']
+            decks[deckname]["drawing"].attribs["height"] = mm(card['cardh']*lines)
+        decks[deckname]["pen"] = [x,y]
+        decks[deckname]["lines"] = lines
+        decks[deckname]["height"] = max(lines,2)
+        return
     with open("tts_exports/export_%s.json"%tts_type,"r") as f:
         tts_json = f.read()
     image_path = "file:///"+os.path.abspath("output/cards/%s.png"%card["name"]).replace("\\","/")
     with open("output/tts_export/%s.json"%card["name"],"w") as f:
         f.write(tts_json%{"face":image_path,"back":image_path,"name":card["name"]})
+        
+def output_tts_decks(decks):
+    import cairosvg
+    for deckname in decks:
+        deck = decks[deckname]
+        save_sheet(deck["drawing"])
+        os.chdir("output")
+        cairosvg.svg2png(bytestring=deck["drawing"].tostring().encode("utf8"),write_to="decks/%s.png"%deckname)
+        os.chdir("..")
+        face = "file:///"+os.path.abspath("output/decks/%s.png"%deckname).replace("\\","/")
+        back = "file:///"+os.path.abspath("images/back_%s.png"%deckname).replace("\\","/")
+        width = deck["width"]
+        height = deck["height"]
+        cards = []
+        cardid = 100
+        deckids = []
+        with open("tts_exports/export_deck_card.json","r") as f:
+            cardjson = f.read()
+        for card in deck["cards"]:
+            deckids.append(str(cardid))
+            cards.append(cardjson%{"face":face,"back":back,"width":width,"height":height,"cardid":cardid})
+            cardid += 1
+        with open("tts_exports/export_deck.json","r") as f:
+            json = f.read()
+        with open("output/tts_export/deck_%s.json"%deckname,"w") as f:
+            f.write(json%{"face":face,"back":back,"width":width,"height":height,
+                "deckids":",".join(deckids),
+                "cards":",".join(cards)})
 
 def output_cards(filename):
     read_card_data(filename)
@@ -323,6 +383,7 @@ def output_cards(filename):
     page=0
     drawn_sheet1 = False
     sheet1 = svgwrite.Drawing("output/cards_page%.2d.svg"%page,size=(mm(pagewidth),mm(pageheight)))
+    decks = {}
     init_sheet(sheet1)
     x,y=(0.0,0.0)
     last_type = ""
@@ -338,9 +399,9 @@ def output_cards(filename):
                 init_sheet(sheet1)
             last_type = card["type"]
 
-            cardw = read_float(card["template"]["props"].get("cardw",settings["cardw"]))
-            cardh = read_float(card["template"]["props"].get("cardh",settings["cardh"]))
-            cardspacing = card["template"]["props"].get("cardspacing",settings["spacing"])
+            cardw = card['cardw'] = read_float(card["template"]["props"].get("cardw",settings["cardw"]))
+            cardh = card['cardh'] = read_float(card["template"]["props"].get("cardh",settings["cardh"]))
+            cardspacing = card['cardspacing'] = card["template"]["props"].get("cardspacing",settings["spacing"])
 
             draw_card(cardsheet,card,x,y+page*pageheight)
             draw_card(sheet1,card,x,y)
@@ -354,7 +415,7 @@ def output_cards(filename):
                 draw_card(singlesheet,card,0,0)
                 cairosvg.svg2png(bytestring=singlesheet.tostring().encode("utf8"),write_to="cards/%s.png"%card["name"])
                 os.chdir("..")
-            output_tts(card)
+            output_tts(card,decks)
 
             x+=cardw+cardspacing
             if x+cardw>pagewidth:
@@ -370,6 +431,8 @@ def output_cards(filename):
     save_sheet(cardsheet)
     if drawn_sheet1:
         save_sheet(sheet1)
+    output_tts_decks(decks)
+    
 
 OUTPUT_SVG=1
 if __name__ == "__main__":
