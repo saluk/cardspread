@@ -1,3 +1,4 @@
 syntax: glob
 .~lock.*
 *.svg
+__pycache__/*

@@ -3,6 +3,7 @@
 #MAGIC_LARGE_FONT="3/16in = .1875 = 13.5"
 import math
 import os
+import subprocess
 if not os.path.exists("output"):
     os.mkdir("output")
 if not os.path.exists("output/cards"):
@@ -13,7 +14,7 @@ if not os.path.exists("output/tts_export"):
     os.mkdir("output/tts_export")
     
 global context
-settings = {"cardw":63,"cardh":88,"spacing":2}
+settings = {"cardw":63,"cardh":88,"spacing":0}
 
 import pyexcel
 
@@ -54,6 +55,8 @@ def read_card_data(filename):
         for card in pyexcel.get_records(file_name="cards.ods",sheet_name=sheet_name,name_columns_by_row=0):
             if not type(card.get("count",""))==type(1):
                 break
+            if not "type" in card:
+                card["type"] = sheet_name
             all_cards.append(card)
     all_cards[:] = [card for card in all_cards if card["type"] in templates]
     for card in all_cards:
@@ -96,9 +99,52 @@ def init_style(root):
     textshadow.feGaussianBlur("SourceAlpha",stdDeviation="4 4",result="shadow")
     textshadow.feOffset(dx="-1",dy="-1")
     root.defs.add(textshadow)
-def init_sheet(sheet):
-    init_style(sheet)
-
+    
+class SvgSheet(svgwrite.Drawing):
+    def __init__(self,file,width,height,pageheight=1000,pagewidth=1000):
+        super(SvgSheet,self).__init__(file,size=(mm(1000),mm(1000)))
+        self.pagewidth = pagewidth
+        self.pageheight = pageheight
+        self.width = width
+        self.height = height
+        init_style(self)
+    @property
+    def width(self):
+        return self._width
+    @property
+    def height(self):
+        return self._height
+    @width.setter
+    def width(self, width):
+        self._width = width
+        if self.width<self.pagewidth:
+            self.width = self.pagewidth
+        if self.pagewidth:
+            if self.width<math.ceil(self.width/self.pagewidth):
+                self.width = int(self.width/self.pagewidth)
+        self.attribs["width"] = mm(self.width)
+    @height.setter
+    def height(self, height):
+        self._height = height
+        if self.pageheight:
+            if self.height<self.pageheight:
+                self.height = self.pageheight
+            if self.height<math.ceil(self.height/self.pageheight):
+                self.height = int(self.height/self.pageheight)
+        self.attribs["height"] = mm(self.height)
+    def save(self):
+        super(SvgSheet,self).save()
+        #svg include stuff
+        #~ f = open(sheet.filename,"r",encoding="utf8")
+        #~ xml = f.read()
+        #~ f.close()
+        #~ for i in range(len(svgpieces)):
+            #~ xml = xml.replace('<g id="svgpiece_%d" />'%i,"""
+            #~ <g id="svgpiece_%d" transform="translate(%d,%d)">%s</g>
+            #~ """%(i,svgpieces[i][0],svgpieces[i][1],svgpieces[i][2]))
+        #~ f = open(sheet.filename,"w")
+        #~ f.write(xml)
+        #~ f.close()
 
 def wrapped_text(text,x,y,w,h,**args):
     text_class = args["class_"]
@@ -130,7 +176,7 @@ def read_color(s):
         return "color",tuple([int(x) for x in s[s.find("(")+1:s.find(")")].split(",")])
     if type(s) == type("") and s.startswith("#"):
         return "rawcolor",s
-    return s
+    return "color",s
 def read_float(s):
     if(type(s)==type("")):
         return float(eval(s))
@@ -264,8 +310,7 @@ def substitute(card,s):
     if not type(s)==type(""):
         return s
     if s.startswith("{") and s.endswith("}"):
-        result = eval(s[1:-1],card,settings)
-        print ("EVAL",s[1:-1],"->",result)
+        result = eval(s[1:-1].replace('\u2019',"'").replace('\u2018',"'"),card,settings)
         return str(result)
     if s.startswith("$"):
         return card[s[1:]]
@@ -286,30 +331,15 @@ def draw_card(root,card,x,y):
         for i in range(len(vals)):
             vals[i] = substitute(card,vals[i])
         func(offset=[x,y],thecard=card,*vals)
-
-def save_sheet(sheet):
-    sheet.save()
-    return
-    f = open(sheet.filename,"r",encoding="utf8")
-    xml = f.read()
-    f.close()
-    for i in range(len(svgpieces)):
-        xml = xml.replace('<g id="svgpiece_%d" />'%i,"""
-        <g id="svgpiece_%d" transform="translate(%d,%d)">%s</g>
-        """%(i,svgpieces[i][0],svgpieces[i][1],svgpieces[i][2]))
-    f = open(sheet.filename,"w")
-    f.write(xml)
-    f.close()
     
-def output_tts(card,decks):
+def output_tts(card,decks,tts_folder="output"):
     pagewidth =card['cardw']*3
     if "[TTS]" not in card: return
     tts_type = card["[TTS]"]
     if "deck" in tts_type:
         deckname = tts_type.replace("deck_","")
         if deckname not in decks:
-            drawing = svgwrite.Drawing("output/deck_%s.svg"%deckname,size=(mm(pagewidth),mm(card['cardh']*2)))
-            init_sheet(drawing)
+            drawing = SvgSheet("output/deck_%s.svg"%deckname,pagewidth,card['cardh']*2,0,0)
             decks[deckname] = {"face":"face","back":"back","drawing":drawing,"cards":[],"pen":[0,0],"lines":1,
                                         "width":3,"height":2}
         decks[deckname]["cards"].append(card)
@@ -321,7 +351,7 @@ def output_tts(card,decks):
             lines += 1
             x = 0
             y+=card['cardh']
-            decks[deckname]["drawing"].attribs["height"] = mm(card['cardh']*lines)
+            decks[deckname]["drawing"].height = card['cardh']*lines
         decks[deckname]["pen"] = [x,y]
         decks[deckname]["lines"] = lines
         decks[deckname]["height"] = max(lines,2)
@@ -329,14 +359,15 @@ def output_tts(card,decks):
     with open("tts_exports/export_%s.json"%tts_type,"r") as f:
         tts_json = f.read()
     image_path = "file:///"+os.path.abspath("output/cards/%s.png"%card["name"]).replace("\\","/")
-    with open("output/tts_export/%s.json"%card["name"],"w") as f:
+    with open(tts_folder+"/%s.json"%card["name"],"w") as f:
         f.write(tts_json%{"face":image_path,"back":image_path,"name":card["name"]})
         
-def output_tts_decks(decks):
+def output_tts_decks(decks,tts_folder="output"):
     import cairosvg
+    posx = 0
     for deckname in decks:
         deck = decks[deckname]
-        save_sheet(deck["drawing"])
+        deck["drawing"].save()
         os.chdir("output")
         cairosvg.svg2png(bytestring=deck["drawing"].tostring().encode("utf8"),write_to="decks/%s.png"%deckname)
         os.chdir("..")
@@ -351,57 +382,48 @@ def output_tts_decks(decks):
             cardjson = f.read()
         for card in deck["cards"]:
             deckids.append(str(cardid))
-            cards.append(cardjson%{"face":face,"back":back,"width":width,"height":height,"cardid":cardid})
+            cards.append(cardjson%{"face":face,"back":back,"width":width,"height":height,"cardid":cardid,"posx":posx})
             cardid += 1
         with open("tts_exports/export_deck.json","r") as f:
             json = f.read()
-        with open("output/tts_export/deck_%s.json"%deckname,"w") as f:
+        with open(tts_folder+"/deck_%s.json"%deckname,"w") as f:
             f.write(json%{"face":face,"back":back,"width":width,"height":height,
                 "deckids":",".join(deckids),
-                "cards":",".join(cards)})
+                "cards":",".join(cards),
+                "posx":str(posx)})
+        posx += 1
 
-def output_cards(filename):
+def output_cards(filename,tts_folder):
     read_card_data(filename)
-    count_cards = sum([int(c.get("count",1)) for c in all_cards])
-    print("TOTAL COUNT:\n",count_cards)
     pagewidth = conv_mm("8.5in")
     pageheight = conv_mm("11in")
-    card_per_page = 0
-    x=y=0
-    while y+settings['cardh']<pageheight:
-        while x+settings['cardw']<pagewidth:
-            card_per_page += 1
-            x+=settings['cardw']+settings['spacing']        
-        x=0
-        y+=settings['cardh']+settings['spacing']
-    num_pages = math.ceil(count_cards/card_per_page)
-
-    print(num_pages,count_cards,card_per_page,mm(pageheight*num_pages))
-    cardsheet = svgwrite.Drawing("output/all_cards.svg",size=(mm(pagewidth),mm(pageheight*(num_pages))))
-    init_sheet(cardsheet)
+    
+    cardsheet = SvgSheet("output/all_cards.svg",pagewidth,0,pagewidth,pageheight)
 
     page=0
     drawn_sheet1 = False
-    sheet1 = svgwrite.Drawing("output/cards_page%.2d.svg"%page,size=(mm(pagewidth),mm(pageheight)))
+    sheet1 = SvgSheet("output/cards_page%.2d.svg"%page,pagewidth,0,pagewidth,pageheight)
     decks = {}
-    init_sheet(sheet1)
     x,y=(0.0,0.0)
     last_type = ""
     for card in all_cards:
         for card_num in range(card.get("count",1)):
-
             if last_type and last_type != card["type"]:
                 x,y=(0.0,0.0)
                 page += 1
-                save_sheet(sheet1)
+                sheet1.save()
                 drawn_sheet1 = False
-                sheet1 = svgwrite.Drawing("output/cards_page%.2d.svg"%page,size=(mm(pagewidth),mm(pageheight)))
-                init_sheet(sheet1)
+                sheet1 = SvgSheet("output/cards_page%.2d.svg"%page,pagewidth,pageheight,pagewidth,pageheight)
             last_type = card["type"]
 
             cardw = card['cardw'] = read_float(card["template"]["props"].get("cardw",settings["cardw"]))
             cardh = card['cardh'] = read_float(card["template"]["props"].get("cardh",settings["cardh"]))
             cardspacing = card['cardspacing'] = card["template"]["props"].get("cardspacing",settings["spacing"])
+            
+            new_height = page*pageheight+y+cardh
+            for sheet in cardsheet,sheet1:
+                if new_height>sheet.height:
+                    sheet.height = new_height
 
             draw_card(cardsheet,card,x,y+page*pageheight)
             draw_card(sheet1,card,x,y)
@@ -410,12 +432,11 @@ def output_cards(filename):
             if OUTPUT_SVG:
                 os.chdir("output")
                 import cairosvg
-                singlesheet = svgwrite.Drawing("output/card.svg",size=(mm(cardw),mm(cardh)))
-                init_sheet(singlesheet)
+                singlesheet = SvgSheet("output/card.svg",cardw,cardh,cardw,cardh)
                 draw_card(singlesheet,card,0,0)
                 cairosvg.svg2png(bytestring=singlesheet.tostring().encode("utf8"),write_to="cards/%s.png"%card["name"])
                 os.chdir("..")
-            output_tts(card,decks)
+            output_tts(card,decks,tts_folder)
 
             x+=cardw+cardspacing
             if x+cardw>pagewidth:
@@ -424,24 +445,28 @@ def output_cards(filename):
                 if y+cardh>pageheight:
                     page += 1
                     y = 0
-                    save_sheet(sheet1)
+                    sheet1.save()
                     drawn_sheet1 = False
-                    sheet1 = svgwrite.Drawing("output/cards_page%.2d.svg"%page,size=(mm(pagewidth),mm(pageheight)))
-                    init_sheet(sheet1)
-    save_sheet(cardsheet)
+                    sheet1 = SvgSheet("output/cards_page%.2d.svg"%page,pagewidth,0,pagewidth,pageheight)
+    cardsheet.save()
+    args = [r'c:\Program Files\Nightly\firefox.exe',
+        'file:///'+os.path.abspath("output/all_cards.svg")]
+    print (args)
+    subprocess.call(args,shell=True)
     if drawn_sheet1:
-        save_sheet(sheet1)
-    output_tts_decks(decks)
-    
-
-OUTPUT_SVG=1
-if __name__ == "__main__":
-    import sys
-    cards = sys.argv[1]
-    output_cards(cards)
+        sheet1.save()
+    output_tts_decks(decks,tts_folder)
     if OUTPUT_SVG:
         import cairosvg
         os.chdir("output")
         with open("all_cards.svg","rb") as f:
             bytes = f.read()
         cairosvg.svg2png(bytestring=bytes,write_to="all_cards.png")
+    
+
+OUTPUT_SVG=1
+if __name__ == "__main__":
+    import sys
+    cards = sys.argv[1]
+    tts_folder = r"C:\Users\saluk\Documents\My Games\Tabletop Simulator\Saves\Chest\ronin_inc"
+    output_cards(cards,tts_folder)
