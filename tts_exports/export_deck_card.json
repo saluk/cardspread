@@ -1,0 +1,42 @@
+        {
+          "Name": "Card",
+          "Transform": {
+            "posX": %(posx)s,
+            "posY": 1.03171337,
+            "posZ": 0.08374377,
+            "rotX": -3.63999584E-06,
+            "rotY": 180.0,
+            "rotZ": 1.53554254E-06,
+            "scaleX": 1.0,
+            "scaleY": 1.0,
+            "scaleZ": 1.0
+          },
+          "Nickname": "",
+          "Description": "",
+          "ColorDiffuse": {
+            "r": 0.713235259,
+            "g": 0.713235259,
+            "b": 0.713235259
+          },
+          "Locked": false,
+          "Grid": true,
+          "Snap": true,
+          "Autoraise": true,
+          "Sticky": true,
+          "Tooltip": true,
+          "CardID": %(cardid)s,
+          "SidewaysCard": false,
+          "CustomDeck": {
+            "1": {
+              "FaceURL": "%(face)s",
+              "BackURL": "%(back)s",
+              "NumWidth": %(width)s,
+              "NumHeight": %(height)s,
+              "BackIsHidden": false,
+              "UniqueBack": false
+            }
+          },
+          "LuaScript": "",
+          "LuaScriptState": "",
+          "GUID": "5a2729"
+        }

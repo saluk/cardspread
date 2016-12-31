@@ -3,6 +3,7 @@
 #MAGIC_LARGE_FONT="3/16in = .1875 = 13.5"
 import math
 import os
+import shutil
 import subprocess
 if not os.path.exists("output"):
     os.mkdir("output")
@@ -14,12 +15,23 @@ if not os.path.exists("output/tts_export"):
     os.mkdir("output/tts_export")
     
 global context
-settings = {"cardw":63,"cardh":88,"spacing":0}
+settings = {"cardw":63,"cardh":88,"spacing":0,
+    "game_name":"cardspread",
+    "tabletop_image_path":"https://owncloud.dawnsoft.org/index.php/s/6cruKN3C6E0qQjy/download?path=%%2F&files=%(filename)s",
+    "cloud_folder":"C:/Users/saluk/ownCloud/tabletop_images",
+    "tts_mod_folder":"C:/Users/saluk/Documents/My Games/Tabletop Simulator/Saves/Chest"}
+
+curpath = os.path.realpath(__file__).replace("\\","/").rsplit("/",1)[0]
+
+
 
 import pyexcel
 
 all_cards = []
 templates = {}
+
+def eval_from_uni(string,glob,loc):
+    return eval(string.replace('\u2019',"'").replace('\u2018',"'"),glob,loc)
 
 def read_card_data(filename):
     data = pyexcel.get_book(file_name=filename)
@@ -48,8 +60,8 @@ def read_card_data(filename):
                 if not line[0]:
                     reading_mode = None
                     continue
-                print(line[0],line[1])
-                settings[line[0]] = eval(str(line[1]))
+                #print(line[0],line[1])
+                settings[line[0]] = eval_from_uni(str(line[1]),globals(),locals())
                 print(settings)
                 
         for card in pyexcel.get_records(file_name="cards.ods",sheet_name=sheet_name,name_columns_by_row=0):
@@ -310,7 +322,7 @@ def substitute(card,s):
     if not type(s)==type(""):
         return s
     if s.startswith("{") and s.endswith("}"):
-        result = eval(s[1:-1].replace('\u2019',"'").replace('\u2018',"'"),card,settings)
+        result = eval_from_uni(s[1:-1],card,settings)
         return str(result)
     if s.startswith("$"):
         return card[s[1:]]
@@ -331,8 +343,22 @@ def draw_card(root,card,x,y):
         for i in range(len(vals)):
             vals[i] = substitute(card,vals[i])
         func(offset=[x,y],thecard=card,*vals)
+        
+def cloud_upload(srcfolder,filename):
+    #path to file
+    srcfile = os.path.abspath(srcfolder+"/"+filename).replace("\\","/")
+    #Copy image to owncloud folder
+    destfolder = settings["cloud_folder"]+"/"+settings["game_name"]
+    if not os.path.exists(destfolder):
+        os.mkdir(destfolder)
+    shutil.copyfile(srcfile,destfolder+"/"+filename)
+    #Return urls
+    return settings["tabletop_image_path"]%{"filename":settings["game_name"]+"/"+filename}
     
-def output_tts(card,decks,tts_folder="output"):
+def output_tts(card,decks):
+    tts_folder = settings["tts_mod_folder"]+"/"+settings["game_name"]
+    if not os.path.exists(tts_folder):
+        os.mkdir(tts_folder)
     pagewidth =card['cardw']*3
     if "[TTS]" not in card: return
     tts_type = card["[TTS]"]
@@ -356,13 +382,16 @@ def output_tts(card,decks,tts_folder="output"):
         decks[deckname]["lines"] = lines
         decks[deckname]["height"] = max(lines,2)
         return
-    with open("tts_exports/export_%s.json"%tts_type,"r") as f:
+    with open(curpath+"/tts_exports/export_%s.json"%tts_type,"r") as f:
         tts_json = f.read()
-    image_path = "file:///"+os.path.abspath("output/cards/%s.png"%card["name"]).replace("\\","/")
+    image_path = cloud_upload("output/cards","%s.png"%card["name"])
     with open(tts_folder+"/%s.json"%card["name"],"w") as f:
         f.write(tts_json%{"face":image_path,"back":image_path,"name":card["name"]})
         
-def output_tts_decks(decks,tts_folder="output"):
+def output_tts_decks(decks):
+    tts_folder = settings["tts_mod_folder"]+"/"+settings["game_name"]
+    if not os.path.exists(tts_folder):
+        os.mkdir(tts_folder)
     import cairosvg
     posx = 0
     for deckname in decks:
@@ -371,20 +400,22 @@ def output_tts_decks(decks,tts_folder="output"):
         os.chdir("output")
         cairosvg.svg2png(bytestring=deck["drawing"].tostring().encode("utf8"),write_to="decks/%s.png"%deckname)
         os.chdir("..")
-        face = "file:///"+os.path.abspath("output/decks/%s.png"%deckname).replace("\\","/")
-        back = "file:///"+os.path.abspath("images/back_%s.png"%deckname).replace("\\","/")
+        
+        face = cloud_upload("output/decks","%s.png"%deckname)
+        back = cloud_upload("images","back_%s.png"%deckname)
+        
         width = deck["width"]
         height = deck["height"]
         cards = []
         cardid = 100
         deckids = []
-        with open("tts_exports/export_deck_card.json","r") as f:
+        with open(curpath+"/tts_exports/export_deck_card.json","r") as f:
             cardjson = f.read()
         for card in deck["cards"]:
             deckids.append(str(cardid))
             cards.append(cardjson%{"face":face,"back":back,"width":width,"height":height,"cardid":cardid,"posx":posx})
             cardid += 1
-        with open("tts_exports/export_deck.json","r") as f:
+        with open(curpath+"/tts_exports/export_deck.json","r") as f:
             json = f.read()
         with open(tts_folder+"/deck_%s.json"%deckname,"w") as f:
             f.write(json%{"face":face,"back":back,"width":width,"height":height,
@@ -393,7 +424,7 @@ def output_tts_decks(decks,tts_folder="output"):
                 "posx":str(posx)})
         posx += 1
 
-def output_cards(filename,tts_folder):
+def output_cards(filename):
     read_card_data(filename)
     pagewidth = conv_mm("8.5in")
     pageheight = conv_mm("11in")
@@ -436,7 +467,7 @@ def output_cards(filename,tts_folder):
                 draw_card(singlesheet,card,0,0)
                 cairosvg.svg2png(bytestring=singlesheet.tostring().encode("utf8"),write_to="cards/%s.png"%card["name"])
                 os.chdir("..")
-            output_tts(card,decks,tts_folder)
+            output_tts(card,decks)
 
             x+=cardw+cardspacing
             if x+cardw>pagewidth:
@@ -455,7 +486,7 @@ def output_cards(filename,tts_folder):
     subprocess.call(args,shell=True)
     if drawn_sheet1:
         sheet1.save()
-    output_tts_decks(decks,tts_folder)
+    output_tts_decks(decks)
     if OUTPUT_SVG:
         import cairosvg
         os.chdir("output")
@@ -468,5 +499,4 @@ OUTPUT_SVG=1
 if __name__ == "__main__":
     import sys
     cards = sys.argv[1]
-    tts_folder = r"C:\Users\saluk\Documents\My Games\Tabletop Simulator\Saves\Chest\ronin_inc"
-    output_cards(cards,tts_folder)
+    output_cards(cards)
