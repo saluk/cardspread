@@ -14,7 +14,6 @@ if not os.path.exists("output/decks"):
 if not os.path.exists("output/tts_export"):
     os.mkdir("output/tts_export")
     
-global context
 settings = {"cardw":63,"cardh":88,"spacing":0,
     "game_name":"cardspread",
     "tabletop_image_path":"https://owncloud.dawnsoft.org/index.php/s/6cruKN3C6E0qQjy/download?path=%%2F&files=%(filename)s",
@@ -157,29 +156,133 @@ class SvgSheet(svgwrite.Drawing):
         #~ f = open(sheet.filename,"w")
         #~ f.write(xml)
         #~ f.close()
+    def wrapped_text(self,text,x,y,w,h,**args):
+        text_class = args["class_"]
+        if "wrap_"+text_class not in settings:
+            raise Exception("No wrap settings found for "+text_class)
+        cw,ch = settings["wrap_"+text_class]
+        columns = int(w/cw)
+        vspace = ch+1.5
+        rows = int(h/ch)
+        lines = []
+        for line in text.split("\n"):
+            lines.append("")
+            for wd in line.split(" "):
+                spc = " "
+                if len(lines[-1]+" "+wd)>columns:
+                    lines.append("")
+                    spc = ""
+                lines[-1] = lines[-1]+spc+wd
+        text = self.text("",x=[x],y=[y],**args)
+        for line in lines[:rows]:
+            text.add(self.tspan(line.strip(),x=[x],y=[y]))
+            y=mm(conv_mm(y)+vspace)
+        return text
+    def addtext(self,text,x,y,anchor="start",text_class="desc",wrap=False,shadow=False,*a,**kwargs):
+        offset = kwargs["offset"]
+        text = read_text(text)
+        x=read_x(x)
+        y=read_y(y)
+        wrap=read_wrap(wrap)
+        shadow=read_shadow(shadow)
+        "filter:url(#textshadow)"
+        if wrap:
+            element = self.wrapped_text(text,mm(offset[0]+x),mm(offset[1]+y),wrap[0],wrap[1],class_=text_class,text_anchor=anchor)
+            if shadow:
+                self.add(self.wrapped_text(text,mm(offset[0]+x),mm(offset[1]+y),wrap[0],wrap[1],wrap[2],class_=text_class,text_anchor=anchor,
+                style="filter:url(#textshadow);fill:black"))
+        else:
+            element = self.text(text,x=[mm(offset[0]+x)],y=[mm(offset[1]+y)],class_=text_class,text_anchor=anchor)
+            if shadow:
+                self.add(self.text(text,x=[mm(offset[0]+x)],y=[mm(offset[1]+y)],class_=text_class,text_anchor=anchor,
+                style="filter:url(#textshadow);fill:black"))
+        self.add(element)
+    def addrect(self,x,y,w,h,color_or_texture=None,stroke="",round=False,*a,**kwargs):
+        offset = kwargs["offset"]
+        color = None
+        x=read_x(x)
+        y=read_y(y)
+        w=read_float(w)
+        h=read_float(h)
+        color_mode,color=read_color(color_or_texture)
+        if round=="round": round = True
+        rx=ry=0
+        if round:
+            rx=ry=15
+        opacity=1
+        fill="none"
+        if color_mode=="color":
+            if(type(color)==type((0,0))):
+                fill = "rgb(%s,%s,%s)"%color[:3]
+                if(len(color)>3):
+                    opacity=color[3]/255.0
+        if color_mode=="texture":
+            fill = "url(#%s)"%color
+            if (self,color) not in patterns:
+                make_img_pattern(self,color)
+        if color_mode=="rawcolor":
+            fill = color
+        self.add(self.rect(
+            (mm(offset[0]+x),mm(offset[1]+y)),
+            (mm(w),mm(h)),
+            fill=fill,
+            stroke=stroke,
+            rx=rx,ry=ry,
+            opacity=opacity
+        ))
+    def addimage(self,img,x,y,w,h,test_field,*a,**kwargs):
+        if not img.strip(): return
+        offset = kwargs["offset"]
+        rx = read_x(x)
+        ry = read_y(y)
+        if test_field=="False":
+            return
+        settings["last_image_x"] = rx
+        settings["last_image_y"] = ry
+        self.add(self.image("../images/"+img,x=mm(offset[0]+rx),y=mm(offset[1]+ry),size=(mm(w),mm(h))))
+    svgpieces = []
+    def addsvg(self,svgpath,*args,**kwargs):
+        thecard = kwargs["thecard"]
+        offset = kwargs["offset"]
+        #with open("svgs/"+svgpath) as f:
+        #    xml = f.read().encode("utf8")
+        #xml = xml[xml.find("<svg"):xml.find("</svg>")+6]
 
-def wrapped_text(text,x,y,w,h,**args):
-    text_class = args["class_"]
-    if "wrap_"+text_class not in settings:
-        raise Exception("No wrap settings found for "+text_class)
-    cw,ch = settings["wrap_"+text_class]
-    columns = int(w/cw)
-    vspace = ch+1.5
-    rows = int(h/ch)
-    lines = []
-    for line in text.split("\n"):
-        lines.append("")
-        for wd in line.split(" "):
-            spc = " "
-            if len(lines[-1]+" "+wd)>columns:
-                lines.append("")
-                spc = ""
-            lines[-1] = lines[-1]+spc+wd
-    text = context.text("",x=[x],y=[y],**args)
-    for line in lines[:rows]:
-        text.add(context.tspan(line.strip(),x=[x],y=[y]))
-        y=mm(conv_mm(y)+vspace)
-    return text
+        import lxml.etree as ET
+        tree = ET.parse("svgs/"+svgpath)
+        root = tree.getroot()
+
+        def gtag(node):
+            return ET.QName(node.tag).localname
+
+        def xml_substitute(text):
+            if not text: return text
+            for key in thecard:
+                if "$"+key+";" in text:
+                    text = text.replace("$"+key+";",thecard[key])
+            return text
+
+        def xml_id_sub(node):
+            for key in thecard:
+                if node.get("id") == "$"+key:
+                    if gtag(node) == "text":
+                        node.text = thecard[key]
+                        for child in node:
+                            node.remove(child)
+            return node
+
+        def process_node(node):
+            node.text = xml_substitute(node.text)
+            node = xml_id_sub(node)
+            for child in node:
+                pass
+                process_node(child)
+        process_node(root)
+
+        xml = ET.tostring(root,encoding="unicode",pretty_print=True)
+        #xml = xml[xml.find("<svg"):xml.find("</svg>")+6]
+        svgpieces.append((offset[0]*3.56,offset[1]*3.56,xml))
+        self.add(self.g(id="svgpiece_%d"%(len(svgpieces)-1)))
 
 def read_color(s):
     if type(s) == type("") and (s.endswith(".jpg") or s.endswith(".png")):
@@ -212,111 +315,6 @@ def read_shadow(s):
     return False
 def read_text(s):
     return str(s).replace("<br>","\n")
-def addtext(text,x,y,anchor="start",text_class="desc",wrap=False,shadow=False,*a,**kwargs):
-    offset = kwargs["offset"]
-    text = read_text(text)
-    x=read_x(x)
-    y=read_y(y)
-    wrap=read_wrap(wrap)
-    shadow=read_shadow(shadow)
-    "filter:url(#textshadow)"
-    if wrap:
-        element = wrapped_text(text,mm(offset[0]+x),mm(offset[1]+y),wrap[0],wrap[1],class_=text_class,text_anchor=anchor)
-        if shadow:
-            context.add(wrapped_text(text,mm(offset[0]+x),mm(offset[1]+y),wrap[0],wrap[1],wrap[2],class_=text_class,text_anchor=anchor,
-            style="filter:url(#textshadow);fill:black"))
-    else:
-        element = context.text(text,x=[mm(offset[0]+x)],y=[mm(offset[1]+y)],class_=text_class,text_anchor=anchor)
-        if shadow:
-            context.add(context.text(text,x=[mm(offset[0]+x)],y=[mm(offset[1]+y)],class_=text_class,text_anchor=anchor,
-            style="filter:url(#textshadow);fill:black"))
-    context.add(element)
-def addrect(x,y,w,h,color_or_texture=None,stroke="",round=False,*a,**kwargs):
-    offset = kwargs["offset"]
-    color = None
-    x=read_x(x)
-    y=read_y(y)
-    w=read_float(w)
-    h=read_float(h)
-    color_mode,color=read_color(color_or_texture)
-    if round=="round": round = True
-    rx=ry=0
-    if round:
-        rx=ry=15
-    opacity=1
-    fill="none"
-    if color_mode=="color":
-        if(type(color)==type((0,0))):
-            fill = "rgb(%s,%s,%s)"%color[:3]
-            if(len(color)>3):
-                opacity=color[3]/255.0
-    if color_mode=="texture":
-        fill = "url(#%s)"%color
-        if (context,color) not in patterns:
-            make_img_pattern(context,color)
-    if color_mode=="rawcolor":
-        fill = color
-    context.add(context.rect(
-        (mm(offset[0]+x),mm(offset[1]+y)),
-        (mm(w),mm(h)),
-        fill=fill,
-        stroke=stroke,
-        rx=rx,ry=ry,
-        opacity=opacity
-    ))
-def addimage(img,x,y,w,h,test_field,*a,**kwargs):
-    if not img.strip(): return
-    offset = kwargs["offset"]
-    rx = read_x(x)
-    ry = read_y(y)
-    if test_field=="False":
-        return
-    settings["last_image_x"] = rx
-    settings["last_image_y"] = ry
-    context.add(context.image("../images/"+img,x=mm(offset[0]+rx),y=mm(offset[1]+ry),size=(mm(w),mm(h))))
-svgpieces = []
-def addsvg(svgpath,*args,**kwargs):
-    thecard = kwargs["thecard"]
-    offset = kwargs["offset"]
-    #with open("svgs/"+svgpath) as f:
-    #    xml = f.read().encode("utf8")
-    #xml = xml[xml.find("<svg"):xml.find("</svg>")+6]
-
-    import lxml.etree as ET
-    tree = ET.parse("svgs/"+svgpath)
-    root = tree.getroot()
-
-    def gtag(node):
-        return ET.QName(node.tag).localname
-
-    def xml_substitute(text):
-        if not text: return text
-        for key in thecard:
-            if "$"+key+";" in text:
-                text = text.replace("$"+key+";",thecard[key])
-        return text
-
-    def xml_id_sub(node):
-        for key in thecard:
-            if node.get("id") == "$"+key:
-                if gtag(node) == "text":
-                    node.text = thecard[key]
-                    for child in node:
-                        node.remove(child)
-        return node
-
-    def process_node(node):
-        node.text = xml_substitute(node.text)
-        node = xml_id_sub(node)
-        for child in node:
-            pass
-            process_node(child)
-    process_node(root)
-
-    xml = ET.tostring(root,encoding="unicode",pretty_print=True)
-    #xml = xml[xml.find("<svg"):xml.find("</svg>")+6]
-    svgpieces.append((offset[0]*3.56,offset[1]*3.56,xml))
-    context.add(context.g(id="svgpiece_%d"%(len(svgpieces)-1)))
         
 def substitute(card,s):
     if not type(s)==type(""):
@@ -331,12 +329,10 @@ def substitute(card,s):
     return s
     
 def draw_card(root,card,x,y):
-    global context
-    context = root
     artifacts = card["template"]["artifacts"]
     for artifact in artifacts:
         try:
-            func = eval("add"+artifact[0])
+            func = getattr(root,"add"+artifact[0])
         except NameError:
             continue
         vals = artifact[1:][:]
