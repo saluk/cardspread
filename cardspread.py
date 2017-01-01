@@ -156,6 +156,11 @@ class SvgSheet(svgwrite.Drawing):
         #~ f = open(sheet.filename,"w")
         #~ f.write(xml)
         #~ f.close()
+    def savepng(self):
+        import cairosvg
+        os.chdir("output")
+        cairosvg.svg2png(bytestring=self.tostring().encode("utf8"),write_to="template.png")
+        os.chdir("..")
     def wrapped_text(self,text,x,y,w,h,**args):
         text_class = args["class_"]
         if "wrap_"+text_class not in settings:
@@ -202,6 +207,7 @@ class SvgSheet(svgwrite.Drawing):
         color = None
         x=read_x(x)
         y=read_y(y)
+        print("W:",w,"READ_W:",read_float(w))
         w=read_float(w)
         h=read_float(h)
         color_mode,color=read_color(color_or_texture)
