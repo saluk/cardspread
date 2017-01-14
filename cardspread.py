@@ -39,7 +39,7 @@ def read_card_data(filename):
         
         reading_mode = None
         reading_templates = None
-        for line in pyexcel.get_sheet(file_name="cards.ods",sheet_name=sheet_name).to_array():
+        for line in pyexcel.get_sheet(file_name=filename,sheet_name=sheet_name).to_array():
             if line[0]=="template":
                 reading_mode = "templates"
                 reading_templates = line[1]
@@ -63,7 +63,7 @@ def read_card_data(filename):
                 settings[line[0]] = eval_from_uni(str(line[1]),globals(),locals())
                 print(settings)
                 
-        for card in pyexcel.get_records(file_name="cards.ods",sheet_name=sheet_name,name_columns_by_row=0):
+        for card in pyexcel.get_records(file_name=filename,sheet_name=sheet_name,name_columns_by_row=0):
             if not type(card.get("count",""))==type(1):
                 break
             if not "type" in card:
@@ -329,7 +329,7 @@ def substitute(card,s):
         result = eval_from_uni(s[1:-1],card,settings)
         return str(result)
     if s.startswith("$"):
-        return card[s[1:]]
+        return card.get(s[1:],s)
     if s.startswith("!"):
         return card["template"]["props"].get(s[1:],settings.get(s[1:]))
     return s
@@ -364,6 +364,7 @@ def output_tts(card,decks):
     pagewidth =card['cardw']*3
     if "[TTS]" not in card: return
     tts_type = card["[TTS]"]
+    if not tts_type: return
     if "deck" in tts_type:
         deckname = tts_type.replace("deck_","")
         if deckname not in decks:
@@ -458,6 +459,7 @@ def output_cards(filename):
                 if new_height>sheet.height:
                     sheet.height = new_height
 
+            print("drawing card %s"%card["name"])
             draw_card(cardsheet,card,x,y+page*pageheight)
             draw_card(sheet1,card,x,y)
             drawn_sheet1 = True
